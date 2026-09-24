@@ -1,0 +1,21 @@
+qpos: [1.3, 0, 0, 0, 0.193285, 0.21588, 0.193285, 0.21588, 0.193285, 0.21588, 0.193285, 0.21588]
+
+contact: 
+    # right_index_1: [x, y, z, nx, ny, nz]
+    right_index_2: [0.028047,0.041863,-0.188995,0.006926,0.735582,0.677400]
+
+    # right_middle_1: [x, y, z, nx, ny, nz]
+    right_middle_2: [0.007557,0.044140,-0.191137,0.046864,0.756917,0.651829]
+
+    # right_ring_1: [x, y, z, nx, ny, nz]
+    # right_ring_2: [x, y, z, nx, ny, nz]
+
+    # right_little_1: [x, y, z, nx, ny, nz]
+    # right_little_2: [x, y, z, nx, ny, nz]
+
+    # right_thumb_1: [x, y, z, nx, ny, nz]
+    # right_thumb_2: [x, y, z, nx, ny, nz]
+    right_thumb_3: [0.022545,0.068511,-0.113774,0.055821,-0.682732,-0.728534]
+    right_thumb_4: [0.021520,0.084806,-0.136526,0.023833,-0.727623,-0.685564]
+
+    # R_base_link: [x, y, z, nx, ny, nz]

@@ -9,3 +9,6 @@ output*
 assets/object
 MUJOCO_LOG.TXT
 task/
+
+*.tar.gz
+baseline/assets/hand/tianyi2_urdf/

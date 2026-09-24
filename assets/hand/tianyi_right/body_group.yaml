@@ -1,0 +1,7 @@
+body_group:
+  - [right_thumb_1, right_thumb_2, right_thumb_3, right_thumb_4]
+  - [right_index_1, right_index_2]
+  - [right_middle_1, right_middle_2]
+  - [right_ring_1, right_ring_2]
+  - [right_little_1, right_little_2]
+  - [R_base_link]

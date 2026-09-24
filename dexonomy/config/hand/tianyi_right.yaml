@@ -1,0 +1,3 @@
+xml_path: ${asset_root}/hand/tianyi_right/right.xml
+color: [0.72, 0.76, 0.8, 1.0]
+arm_hand:
