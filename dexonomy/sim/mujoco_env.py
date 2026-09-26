@@ -199,7 +199,8 @@ class MuJoCo_BaseEnv:
         return
 
     def _add_articulated_object(
-        self, name, xml_path, pose, qpos, scale, fix_root, **kwargs
+        self, name, xml_path, pose, qpos, scale, fix_root,
+        fix_joints_for_generation=False, **kwargs
     ):
         child_spec = mujoco.MjSpec.from_file(xml_path)
         for m in child_spec.meshes:
@@ -214,11 +215,29 @@ class MuJoCo_BaseEnv:
         for m in child_spec.meshes:
             m.scale *= scale
 
-        # if not self._cfg.obj_freejoint:
-        #     for j in child_spec.joints:
-        #         j.delete()
         for a in child_spec.actuators:
             a.delete()
+
+        # Bake object joints only during fixed-object state generation.
+        if fix_joints_for_generation and not self._cfg.obj_freejoint:
+            object_model = child_spec.compile()
+            object_data = mujoco.MjData(object_model)
+            object_data.qpos[:] = qpos
+            mujoco.mj_forward(object_model, object_data)
+            for body in child_spec.bodies:
+                if body.name == "world":
+                    continue
+                body_id = object_model.body(body.name).id
+                parent_id = object_model.body_parentid[body_id]
+                parent_rot = object_data.xmat[parent_id].reshape(3, 3)
+                body.pos = (object_data.xpos[body_id] - object_data.xpos[parent_id]) @ parent_rot
+                local_rot = parent_rot.T @ object_data.xmat[body_id].reshape(3, 3)
+                local_quat = np.empty(4)
+                mujoco.mju_mat2Quat(local_quat, local_rot.ravel())
+                body.quat = local_quat
+            for joint in list(child_spec.joints):
+                joint.delete()
+            qpos = []
 
         attach_frame = self._spec.worldbody.add_frame()
         child_world = attach_frame.attach_body(
@@ -436,7 +455,9 @@ class MuJoCo_BaseEnv:
         if not temporal:
             self._cfg.obj_margin = obj_margin
         for i in range(self._model.ngeom):
-            if self._model.geom(i).name.startswith(self._cfg.obj_prefix):
+            geom = self._model.geom(i)
+            body_name = self._model.body(self._model.geom_bodyid[i]).name
+            if geom.name.startswith(self._cfg.obj_prefix) or body_name.startswith(self._cfg.obj_prefix):
                 self._model.geom_margin[i] = obj_margin
         return
 

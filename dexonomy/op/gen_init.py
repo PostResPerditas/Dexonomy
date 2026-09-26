@@ -22,6 +22,7 @@ from dexonomy.data.hand_loader import HandTemplateLoader
 from dexonomy.qp.qp_batched import get_qp_error_batched
 from dexonomy.qp.qp_single import ContactQP
 from dexonomy.util.file_util import get_template_names
+from dexonomy.util.task_region import RegionLoss
 
 
 def valid_index_padding(
@@ -202,8 +203,14 @@ class HandObjMatcher:
         self.cfg = cfg
         self.device = device
         self.coll_env = coll_env
+        region_cfg = cfg.get("region")
+        self.region = (RegionLoss(region_cfg, device)
+                       if region_cfg is not None and region_cfg.weight > 0 else None)
 
     def forward(self, tmpl_sample: dict, obj_sample: dict):
+        if self.region is not None:
+            for scene in obj_sample["scene_cfg"]:
+                self.region.regions.check_scene(scene)
         opt_q = torch_matrix_to_quaternion(obj_sample["rot_o2c_init"])
         opt_t = obj_sample["trans_o2c_init"]
         opt_q.requires_grad_()
@@ -226,6 +233,9 @@ class HandObjMatcher:
             loss_dist = ((obj_scale * (o_cp_o - h_cpn_o[..., :3])) ** 2).sum(dim=-1)
             loss_normal = ((o_cn_o - h_cpn_o[..., 3:]) ** 2).sum(dim=-1)  # [b,h,n]
             loss = (1000 * loss_dist + loss_normal).mean(dim=-1).mean(dim=-1).sum()
+            if self.region is not None:
+                region_dist = self.region.distances(h_cpn_o[..., :3])
+                loss = loss + self.region.cfg.weight * self.region.loss(region_dist).mean(dim=-1).sum()
             if i == self.cfg.opt_step - 1:
                 break
 
@@ -271,6 +281,8 @@ class HandObjMatcher:
             "ext_center": obj_sample["ext_center"].repeat_interleave(h, dim=0),
             "ext_wrench": obj_sample["ext_wrench"].repeat_interleave(h, dim=0),
         }
+        if self.region is not None:
+            ret_dict["region_dist"] = region_dist.reshape(b * h, -1)
         return ret_dict
 
 
@@ -372,6 +384,13 @@ def operate_init(cfg):
                             "n_evo": np_array32([ret_dict["n_evo"][count]]),
                             "obj_pose": ret_dict["obj_pose"][count],
                             "obj_scale": ret_dict["obj_scale"][count],
+                            **({"region_guidance": {
+                                "tasks": ho_matcher.region.names,
+                                "weight": float(ho_matcher.region.cfg.weight),
+                                "tolerance_m": float(ho_matcher.region.cfg.tolerance),
+                                "path": os.path.abspath(ho_matcher.region.cfg.path),
+                                "init_distances_m": ret_dict["region_dist"][count],
+                            }} if ho_matcher.region is not None else {}),
                         },
                     )
         logging.info("Finish initialization.")

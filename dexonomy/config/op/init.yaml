@@ -12,6 +12,12 @@ object:
 
 matcher:
   opt_step: 100
+  region:
+    weight: 0.0
+    path: null
+    tasks: []
+    tolerance: 0.004  # metres, zero penalty inside this distance
+    n_points: 256
 
 filter:
   general:
