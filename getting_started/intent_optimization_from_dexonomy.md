@@ -179,3 +179,56 @@ python -m dexonomy.view_states --data output/joystick006_region_forward_trigger_
 | 前推 + 扳机区域项 weight=1 | 209 | 168 | 155 | 121 | 15 |
 
 上述类别可重叠，统计未排除底座；双任务的 121 个区域交集候选排除底座近接触后为 120 个。接触覆盖改善不能替代功能评估，当前也不据此确定最优区域权重。
+
+## 单任务执行与动态回放（2026-09-26）
+
+执行入口为 `python -m dexonomy.execute_states`，回放入口为 `python -m dexonomy.view_execution`。使用 MuJoCo_EvalEnv 的手根 mocap 和真实手指驱动，恢复操作杆的 9 个活动关节；不施加生成时的接触吸引力，也不直接设置物体关节运动。保留当前无重力、无复位弹簧、低阻抗模型。本阶段只执行单任务，双任务分段控制尚未接入。
+
+流程为 pre-contact 路径插值、进入 grasp、短暂稳定、TCP 动作、保持。杆体使用当前关节轴与轴心的圆弧，按钮沿执行起点的实际关节轴平移。对整只手根位姿施加刚体变换；当前手模型的 right_tcp_link 与浮动手根重合，不是把 R_base_link 当作 TCP。
+
+默认不使用 squeeze_qpos，进入后保持生成手型，避免依赖其他方法没有的挤压控制字段。可用 `--squeeze-blend` 显式测试插值到 squeeze 控制目标，但它不是接触状态本身。
+
+### 重跑命令
+
+已有结果位于 `output/joystick006_execution_a_single` 和 `output/joystick006_execution_b_single`。下列命令使用新的输出目录：
+
+```bash
+python -m dexonomy.execute_states --data output/joystick006_task_a_forward_tianyi_right/grasp_data --task move_stick_forward --output output/joystick006_execution_a_trial2 --limit 10 --pre-mode native --max-angle-deg 25 --success-fraction 0.5
+python -m dexonomy.execute_states --data output/joystick006_task_b_button05_tianyi_right/grasp_data --task press_button_05 --output output/joystick006_execution_b_trial2 --limit 10 --pre-mode native --max-translation 0.012 --success-fraction 0.5
+```
+
+默认从保存的区域索引选择满足任务且无底座近接触的候选，按路径排序取前 10 个。`--limit 0` 运行全部；`--data` 可直接给单个状态 NPY；其他方法没有标签索引时可用 `--selection all`，若状态没有 scene_path，则用 `--scene` 指定当前场景。
+
+可调参数：`--max-angle-deg`（圆弧控制预算，度）、`--max-translation`（平移预算，米）、`--action-seconds`（默认 2 秒）、`--approach-seconds`（默认 1.5 秒）、`--settle-seconds`（默认 0.3 秒）、`--success-fraction`（默认目标方向可用行程的 0.5）、`--hold-seconds`（默认 0.2 秒）、`--hold-timeout`（默认 0.5 秒）。控制间隔默认 0.02 秒，仿真步长 0.004 秒。
+
+成功由物体实际关节从中立值向目标方向的进展判定；达阈值后停止增加 TCP 指令，保持超过阈值。接触进入阶段已越过阈值的情况记为 `pretriggered`，不作为操作阶段成功。单任务默认不要求保持期间持续实际接触；`--require-contact-hold` 可开启严格检查。所有轨迹仍保存物理接触标记。成功不等于符合真实机构动力学，也不包含机器人手臂可达性检查。
+
+### 可替换的 pre-contact 接口
+
+| 模式 | 参数 | 行为 |
+|---|---|---|
+| 原生 | `--pre-mode native` | 使用输入的 pregrasp_qpos 路径，缺失时报错 |
+| 生成 | `--pre-mode generate --pre-clearance 0.045` | 复用 Dexonomy 固定物体、膨胀碰撞 margin 生成退让路径，再反向进入 |
+| 指定 | `--pre-mode specified --pre-state /path/state.npy --pre-key grasp_qpos` | 读取独立指定状态或路径；也接受直接保存的数值 NPY |
+| 退让插值 | `--pre-mode retreat --pre-clearance 0.045 --retreat-direction 0 0 1` | 按世界坐标方向退让 45 mm，再插值进入；省略方向时使用接触中心指向手根的方向 |
+
+统一的手状态为 `[world x,y,z, qw,qx,qy,qz, XML 顺序手关节 qpos]`，当前 Tianyi 手为 19 维；路径为 N×19。外部方法需要转换坐标、四元数顺序及关节顺序，不能把 Intent 的 TCP/驱动变量原样当作这个向量。生成或退让模式不是完整避障规划，失败需要保留分析。
+
+### 回放命令
+
+```bash
+python -m dexonomy.view_execution --data output/joystick006_execution_a_single --backend mujoco
+python -m dexonomy.view_execution --data output/joystick006_execution_b_single --backend mujoco
+python -m dexonomy.view_execution --data output/joystick006_execution_a_single --backend viser --port 8092
+python -m dexonomy.view_execution --data output/joystick006_execution_b_single --backend viser --port 8093
+```
+
+MuJoCo：空格暂停/播放，N/P 切换状态，R 重播，逗号/句号单帧切换。Viser：State 选择状态，Frame 选择时刻，Play 控制播放；显示实际关节进展、阶段与接触。`--result success` 或 `--result failure` 可筛选回放状态。这是保存的真实 qpos 回放，不会重新驱动物体或重新判定结果；修改动作参数需重跑执行命令。
+
+每个执行目录包含实际编译模型 `model.mjb`、逐状态轨迹 NPZ、`summary.json`。轨迹记录完整手与物体 qpos/qvel、控制量、mocap 位姿、时间、阶段、接触点及任务进展；NPZ 的 metadata 对应具体源状态及判定条件。
+
+### 首轮观察
+
+单任务默认行程保持口径：前推 10/10；按钮 5 为 5/10，另有 1 个 pretriggered、4 个运动预算耗尽。这只是固定排序前 10 个区域候选的小规模调试，不是全数据成功率。
+
+严格持续接触诊断保存在 `joystick006_execution_a_pilot` 和 `joystick006_execution_b_pilot`：前推 6/10、按钮 3/10。差异来自达标后的接触间断，不是通过修改物体关节制造成功。按钮个别轨迹达到约 3.10 mm，略超过 3 mm 的软限位，回放后可考虑降低速度/步长；当前未进行逐状态参数调优。
